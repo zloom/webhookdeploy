@@ -14,6 +14,8 @@ open System.Security
 open System.Threading.Tasks
 open System.Net
 
+open Microsoft.FSharp.Core
+
 module Settings =    
     
     let user = ConfigurationManager.AppSettings.["user"]
@@ -22,10 +24,10 @@ module Settings =
         ConfigurationManager.AppSettings.["password"].ToCharArray() 
         |> Seq.fold (fun (s : SecureString) a -> s.AppendChar(a); s) (new SecureString())
     
-    let handlers = 
+    let handlers() = 
         File.ReadAllText(ConfigurationManager.AppSettings.["handlers"])
-        |> fun text -> JsonConvert.DeserializeObject<Dictionary<String, String>>(text)
-        |> Dictionary
+        |> fun text -> try JsonConvert.DeserializeObject<Dictionary<String, String>>(text) with e -> Console.WriteLine e; Dictionary()
+        
     
 
 type ReceiverMiddleware(next : OwinMiddleware) = 
@@ -37,7 +39,7 @@ type ReceiverMiddleware(next : OwinMiddleware) =
         else ""   
 
     let execute (context: IOwinContext) cmd = 
-        let script = sprintf "/C \"%s\"" Settings.handlers.[context.Request.Path.Value]           
+        let script = sprintf "/C \"%s\"" cmd
         let startInfo = ProcessStartInfo(FileName = "cmd.exe", Arguments = script)
             
         startInfo.UserName <- Settings.user
@@ -49,19 +51,24 @@ type ReceiverMiddleware(next : OwinMiddleware) =
         context.Response.StatusCode <- int HttpStatusCode.OK
         context.Response.ContentType <- "text/html"
         use proc = new Process(StartInfo = startInfo)
-        proc.OutputDataReceived.Add(output >> (sprintf "<p>%s</p>") >> context.Response.Write)
-        proc.ErrorDataReceived.Add(output >> (sprintf "<p>%s</p>") >> context.Response.Write)
+        proc.OutputDataReceived.Add(output >> (sprintf "<p style=\"color:blue;\">%s</p>") >> context.Response.Write)
+        proc.ErrorDataReceived.Add(output >> (sprintf "<p style=\"color:red;\">%s</p>") >> context.Response.Write)
         proc.OutputDataReceived.Add(output >> Console.WriteLine)
         proc.ErrorDataReceived.Add(output >> Console.WriteLine)                       
-                            
-        proc.Start() |> ignore
-        proc.BeginOutputReadLine()
-        proc.BeginErrorReadLine()
-        proc.WaitForExit()
+                      
+        try      
+            proc.Start() |> ignore
+            proc.BeginOutputReadLine()
+            proc.BeginErrorReadLine()
+            proc.WaitForExit()
+        with e ->            
+            ((sprintf "<p style=\"color:red;\">%s</p>") >> context.Response.Write) e.Message 
+            Console.WriteLine e.Message
+            
 
     override __.Invoke(context) = 
         async {   
-            match Settings.handlers.TryGetValue context.Request.Path.Value with
+            match (Settings.handlers()).TryGetValue context.Request.Path.Value with
             | true, cmd -> do! async { execute context cmd } 
             | false, _  -> context.Response.StatusCode <- int HttpStatusCode.NotFound   
             return context       
