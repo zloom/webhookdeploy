@@ -38,10 +38,9 @@ type ReceiverMiddleware(next : OwinMiddleware) =
         then sprintf "%O:%s" DateTime.UtcNow arg.Data
         else ""   
 
-    let execute (context: IOwinContext) cmd = 
-        let script = sprintf "/C \"%s\"" cmd
-        let startInfo = ProcessStartInfo(FileName = "cmd.exe", Arguments = script)
-            
+    let execute (context: IOwinContext) cmd =         
+        let startInfo = ProcessStartInfo(FileName = "powershell", Arguments = cmd)
+        startInfo.Verb <- "runas"            
         startInfo.UserName <- Settings.user
         startInfo.Password <- Settings.password
         startInfo.CreateNoWindow <- true
